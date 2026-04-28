@@ -1,25 +1,29 @@
 /**
  * ai.js — Hugging Face Inference API integration
- * Provider: novita (free tier, supports LLMs)
- * Model: meta-llama/Llama-3.1-8B-Instruct
+ * Single router URL, provider appended to model name as :cerebras
+ * Fallback chain: cerebras → sambanova → featherless-ai
  */
 
 const HF_API_KEY = process.env.HF_API_KEY || "";
 
-// ── Use the HF router with novita provider (free, supports LLMs) ──
-const API_URL = "https://router.huggingface.co/novita/v1/chat/completions";
-const MODEL   = "meta-llama/llama-3.1-8b-instruct";
+// ── Single HF router endpoint ──────────────────────────────────
+const API_URL = "https://router.huggingface.co/v1/chat/completions";
+
+// Provider is appended to model name with :provider suffix
+// Cerebras is fast & free; fallbacks if it's unavailable
+const MODELS = [
+  "meta-llama/Llama-3.1-8B-Instruct:cerebras",
+  "meta-llama/Llama-3.1-8B-Instruct:sambanova",
+  "meta-llama/Llama-3.1-8B-Instruct:featherless-ai",
+];
 
 // ──────────────────────────────────────────
 //  System personas per mode
 // ──────────────────────────────────────────
 const SYSTEM_PROMPTS = {
   chat: `You are RA-FA AI, a smart, friendly and helpful assistant created by RICKY, a passionate Cameroonian developer and head of Valenhart. You help with school, homework, learning, and everyday questions. Be warm, concise and encouraging.`,
-
   homework: `You are RA-FA AI Homework Helper, built by RICKY (Valenhart). You explain school concepts clearly and provide step-by-step solutions. Always show your reasoning. Be patient and educational.`,
-
   study: `You are RA-FA AI Study Assistant, built by RICKY (Valenhart). You summarize texts, generate study notes, and answer academic questions. Be structured, use bullet points when helpful, and keep explanations clear.`,
-
   writing: `You are RA-FA AI Writing Assistant, built by RICKY (Valenhart). You help improve essays, emails, and assignments. Correct grammar, improve clarity, and explain your suggestions. Be constructive and encouraging.`,
 };
 
@@ -42,7 +46,6 @@ function buildPrompt({ message, mode = "chat", language = "en", history = [] }) 
     { role: "system", content: `${systemBase} ${langHint}` },
   ];
 
-  // Inject last 6 turns of history for context
   const recent = history.slice(-6);
   for (const turn of recent) {
     if (turn.role === "user" || turn.role === "assistant") {
@@ -55,43 +58,57 @@ function buildPrompt({ message, mode = "chat", language = "en", history = [] }) 
 }
 
 // ──────────────────────────────────────────
-//  callHuggingFace — POST to HF router
+//  callHuggingFace — tries each model/provider in order
 // ──────────────────────────────────────────
 async function callHuggingFace(messages) {
   if (!HF_API_KEY) {
     throw new Error("HF_API_KEY is not set. Please add your Hugging Face API key.");
   }
 
-  const response = await fetch(API_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${HF_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      messages,
-      max_tokens: 512,
-      temperature: 0.7,
-      top_p: 0.9,
-      stream: false,
-    }),
-  });
+  let lastError = null;
 
-  if (!response.ok) {
-    const errText = await response.text();
-    if (response.status === 503) {
-      throw new Error("The AI model is loading. Please wait ~20 seconds and try again.");
+  for (const model of MODELS) {
+    try {
+      const response = await fetch(API_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${HF_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          max_tokens: 512,
+          temperature: 0.7,
+          top_p: 0.9,
+          stream: false,
+        }),
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        // Try next provider on 400/404, throw immediately on auth errors
+        if (response.status === 401 || response.status === 403) {
+          throw new Error(`Authentication failed. Please check your HF_API_KEY.`);
+        }
+        lastError = new Error(`[${model}] ${response.status}: ${errText.slice(0, 150)}`);
+        console.warn("Provider failed, trying next:", lastError.message);
+        continue;
+      }
+
+      const data = await response.json();
+      const reply = data?.choices?.[0]?.message?.content;
+      if (!reply) throw new Error("Unexpected response format from AI model.");
+      return reply.trim();
+
+    } catch (err) {
+      if (err.message.includes("Authentication failed")) throw err;
+      lastError = err;
+      console.warn("Provider error, trying next:", err.message);
     }
-    throw new Error(`Hugging Face API error ${response.status}: ${errText.slice(0, 300)}`);
   }
 
-  const data = await response.json();
-
-  const reply = data?.choices?.[0]?.message?.content;
-  if (!reply) throw new Error("Unexpected response format from AI model.");
-
-  return reply.trim();
+  throw new Error(lastError?.message || "All AI providers failed. Please try again later.");
 }
 
 module.exports = { callHuggingFace, buildPrompt };
