@@ -1,14 +1,14 @@
 /**
  * ai.js — Hugging Face Inference API integration
- * Uses the HF Router endpoint (OpenAI-compatible)
- * Model: Mistral-7B-Instruct-v0.3 (free tier)
+ * Provider: novita (free tier, supports LLMs)
+ * Model: meta-llama/Llama-3.1-8B-Instruct
  */
 
 const HF_API_KEY = process.env.HF_API_KEY || "";
 
-// ── Correct HF Router endpoint (2025) ──────────────────────────
-const API_URL = "https://router.huggingface.co/hf-inference/v1/chat/completions";
-const MODEL   = "mistralai/Mistral-7B-Instruct-v0.3";
+// ── Use the HF router with novita provider (free, supports LLMs) ──
+const API_URL = "https://router.huggingface.co/novita/v1/chat/completions";
+const MODEL   = "meta-llama/llama-3.1-8b-instruct";
 
 // ──────────────────────────────────────────
 //  System personas per mode
@@ -55,7 +55,7 @@ function buildPrompt({ message, mode = "chat", language = "en", history = [] }) 
 }
 
 // ──────────────────────────────────────────
-//  callHuggingFace — POST to HF chat completions
+//  callHuggingFace — POST to HF router
 // ──────────────────────────────────────────
 async function callHuggingFace(messages) {
   if (!HF_API_KEY) {
@@ -81,14 +81,13 @@ async function callHuggingFace(messages) {
   if (!response.ok) {
     const errText = await response.text();
     if (response.status === 503) {
-      throw new Error("The AI model is loading (cold start). Please wait ~20 seconds and try again.");
+      throw new Error("The AI model is loading. Please wait ~20 seconds and try again.");
     }
     throw new Error(`Hugging Face API error ${response.status}: ${errText.slice(0, 300)}`);
   }
 
   const data = await response.json();
 
-  // OpenAI-compatible response shape
   const reply = data?.choices?.[0]?.message?.content;
   if (!reply) throw new Error("Unexpected response format from AI model.");
 
