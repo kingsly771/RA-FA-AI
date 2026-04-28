@@ -1,13 +1,13 @@
 /**
  * ai.js — Hugging Face Inference API integration
- * Uses the new OpenAI-compatible /v1/chat/completions endpoint
+ * Uses the HF Router endpoint (OpenAI-compatible)
  * Model: Mistral-7B-Instruct-v0.3 (free tier)
  */
 
 const HF_API_KEY = process.env.HF_API_KEY || "";
 
-// ── New HF Inference API (router endpoint, OpenAI-compatible) ──
-const API_URL = "https://api-inference.huggingface.co/v1/chat/completions";
+// ── Correct HF Router endpoint (2025) ──────────────────────────
+const API_URL = "https://router.huggingface.co/hf-inference/v1/chat/completions";
 const MODEL   = "mistralai/Mistral-7B-Instruct-v0.3";
 
 // ──────────────────────────────────────────
