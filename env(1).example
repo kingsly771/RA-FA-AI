@@ -1,0 +1,5 @@
+# RA-FA AI v2 — Environment Variables
+# Get your free HF token at: https://huggingface.co/settings/tokens
+
+HF_API_KEY=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+PORT=3000
