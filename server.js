@@ -1,220 +1,224 @@
 /**
- * RA-FA AI v2 — Backend Server
+ * RA-FA AI v3 — Backend
  * Developer: RICKY (Valenhart)
- * Features: Chat, Homework, Study, Writing, Image Gen, Translation, Quiz, File Analysis
  */
+const express = require("express");
+const cors    = require("cors");
+const path    = require("path");
+const multer  = require("multer");
 
-const express  = require("express");
-const cors     = require("cors");
-const path     = require("path");
-const multer   = require("multer");
-
-const { callAI, buildPrompt } = require("./ai");
-const { generateImage }       = require("./image");
-const { getCache, setCache }  = require("./cache");
+const { callAI, buildPrompt, detectEmotion, captionImage } = require("./ai");
+const { generateImage } = require("./image");
+const { getCache, setCache } = require("./cache");
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
-// Multer: store uploaded files in memory (no disk needed on Render)
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
-  fileFilter(_, file, cb) {
-    const allowed = ["text/plain", "application/pdf",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"];
-    // Also allow by extension for PDFs
-    if (allowed.includes(file.mimetype) || file.originalname.match(/\.(txt|pdf|docx|md)$/i)) {
-      cb(null, true);
-    } else {
-      cb(new Error("Only .txt, .pdf, .docx, .md files are supported."));
-    }
-  },
+  limits: { fileSize: 8 * 1024 * 1024 },
 });
 
 app.use(cors());
-app.use(express.json({ limit: "4mb" }));
+app.use(express.json({ limit: "10mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
-// ── POST /api/chat ─────────────────────────────────────────────
+// ── POST /api/chat ─────────────────────────────────
 app.post("/api/chat", async (req, res) => {
   try {
-    const { message, mode, language, history } = req.body;
-    if (!message?.trim()) return res.status(400).json({ error: "Message cannot be empty." });
+    const { message, mode, language, history, emotion } = req.body;
+    if (!message?.trim()) return res.status(400).json({ error:"Message cannot be empty." });
 
-    const cacheKey = `chat::${mode}::${language}::${message.trim().toLowerCase()}`;
+    const cacheKey = `chat::${mode}::${language}::${message.trim().toLowerCase().slice(0,120)}`;
     const cached = getCache(cacheKey);
-    if (cached) return res.json({ reply: cached, cached: true });
+    if (cached) return res.json({ reply:cached, cached:true, emotion });
 
-    const messages = buildPrompt({ message, mode, language, history: history || [] });
-    const reply = await callAI(messages);
+    const messages = buildPrompt({ message, mode, language, history:history||[], emotion });
+    const reply = await callAI(messages, mode==="reasoning" ? 900 : 600);
     setCache(cacheKey, reply);
-    res.json({ reply, cached: false });
-  } catch (err) {
-    console.error("Chat error:", err.message);
-    res.status(500).json({ error: err.message });
+    res.json({ reply, cached:false, emotion: detectEmotion(message) });
+  } catch(err) {
+    console.error("Chat:", err.message);
+    res.status(500).json({ error:err.message });
   }
 });
 
-// ── POST /api/quiz ─────────────────────────────────────────────
+// ── POST /api/image-analyze ────────────────────────
+// Analyze an uploaded image: caption it then answer user question
+app.post("/api/image-analyze", upload.single("image"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error:"No image uploaded." });
+    const { question="Describe this image in detail", language="en" } = req.body;
+
+    // Step 1: caption the image
+    const base64 = req.file.buffer.toString("base64");
+    let caption = "";
+    try {
+      caption = await captionImage(base64, req.file.mimetype);
+    } catch(e) {
+      console.warn("Caption failed, using raw analysis:", e.message);
+      caption = "an image (captioning unavailable)";
+    }
+
+    // Step 2: answer the question with context
+    const langMap = { en:"English",fr:"French",es:"Spanish",de:"German",ar:"Arabic" };
+    const lang = langMap[language]||"English";
+    const messages = [
+      { role:"system", content:`You are RA-FA AI Vision by RICKY (Valenhart). Analyze images and answer questions about them. Be detailed and accurate. Respond in ${lang}.` },
+      { role:"user",   content:`I have an image. Auto-caption: "${caption}"\n\nUser's question: ${question}\n\nPlease provide a detailed, helpful answer based on the image description.` }
+    ];
+    const reply = await callAI(messages, 500);
+    res.json({ caption, reply });
+  } catch(err) {
+    console.error("Image analyze:", err.message);
+    res.status(500).json({ error:err.message });
+  }
+});
+
+// ── POST /api/quiz ─────────────────────────────────
 app.post("/api/quiz", async (req, res) => {
   try {
-    const { topic, count = 5, difficulty = "medium", language = "en" } = req.body;
-    if (!topic?.trim()) return res.status(400).json({ error: "Topic is required." });
+    const { topic, count=5, difficulty="medium", language="en", type="mcq" } = req.body;
+    if (!topic?.trim()) return res.status(400).json({ error:"Topic required." });
 
-    const cacheKey = `quiz::${topic}::${count}::${difficulty}::${language}`;
+    const cacheKey = `quiz::${topic}::${count}::${difficulty}::${language}::${type}`;
     const cached = getCache(cacheKey);
-    if (cached) return res.json({ quiz: cached, cached: true });
+    if (cached) return res.json({ quiz:cached, cached:true });
 
-    const langMap = { en: "English", fr: "French", es: "Spanish", de: "German", ar: "Arabic" };
-    const lang = langMap[language] || "English";
+    const langMap={en:"English",fr:"French",es:"Spanish",de:"German",ar:"Arabic"};
+    const lang = langMap[language]||"English";
+
+    const typeInstructions = type === "truefalse"
+      ? `Generate ${count} True/False questions. Each item: {"question":"...","answer":"True" or "False","explanation":"..."}`
+      : type === "openended"
+      ? `Generate ${count} open-ended questions with model answers. Each item: {"question":"...","answer":"model answer here","explanation":"..."}`
+      : `Generate ${count} MCQ questions. Each item: {"question":"...","options":["A)...","B)...","C)...","D)..."],"answer":"A)...","explanation":"..."}`;
 
     const messages = [
-      {
-        role: "system",
-        content: `You are a quiz generator. Always respond ONLY with a valid JSON array. No markdown, no explanation, no extra text — just the raw JSON array.`
-      },
-      {
-        role: "user",
-        content: `Generate exactly ${count} multiple-choice quiz questions about "${topic}" at ${difficulty} difficulty level. Respond in ${lang}.
-
-Return ONLY a JSON array like this (no markdown, no backticks):
-[
-  {
-    "question": "Question text here?",
-    "options": ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],
-    "answer": "A) Option 1",
-    "explanation": "Brief explanation why this is correct."
-  }
-]`
-      }
+      { role:"system", content:`You are a quiz generator. Respond ONLY with a raw JSON array. No markdown, no backticks, no explanation.` },
+      { role:"user",   content:`${typeInstructions} about "${topic}" at ${difficulty} difficulty in ${lang}. Return ONLY the JSON array.` }
     ];
 
-    const raw = await callAI(messages, 1200);
-
-    // Strip markdown code fences if model added them
-    const cleaned = raw.replace(/```json|```/gi, "").trim();
-    // Extract JSON array
+    const raw = await callAI(messages, 1400);
+    const cleaned = raw.replace(/```json|```/gi,"").trim();
     const match = cleaned.match(/\[[\s\S]*\]/);
-    if (!match) throw new Error("AI did not return valid quiz JSON. Please try again.");
-
+    if (!match) throw new Error("AI did not return valid JSON. Try again.");
     const quiz = JSON.parse(match[0]);
     setCache(cacheKey, quiz);
-    res.json({ quiz, cached: false });
-  } catch (err) {
-    console.error("Quiz error:", err.message);
-    res.status(500).json({ error: err.message });
+    res.json({ quiz, cached:false });
+  } catch(err) {
+    console.error("Quiz:", err.message);
+    res.status(500).json({ error:err.message });
   }
 });
 
-// ── POST /api/translate ────────────────────────────────────────
+// ── POST /api/translate ────────────────────────────
 app.post("/api/translate", async (req, res) => {
   try {
-    const { text, targetLanguage, sourceLanguage = "auto" } = req.body;
-    if (!text?.trim()) return res.status(400).json({ error: "Text is required." });
-    if (!targetLanguage) return res.status(400).json({ error: "Target language is required." });
+    const { text, targetLanguage, sourceLanguage="auto", formality="neutral" } = req.body;
+    if (!text?.trim()) return res.status(400).json({ error:"Text required." });
 
-    const cacheKey = `translate::${targetLanguage}::${text.trim().toLowerCase().slice(0, 100)}`;
+    const cacheKey = `tr::${targetLanguage}::${formality}::${text.trim().slice(0,80)}`;
     const cached = getCache(cacheKey);
-    if (cached) return res.json({ translation: cached, cached: true });
+    if (cached) return res.json({ translation:cached, cached:true });
 
-    const sourcePart = sourceLanguage === "auto" ? "" : ` from ${sourceLanguage}`;
+    const src = sourceLanguage==="auto" ? "" : ` from ${sourceLanguage}`;
+    const formalNote = formality==="formal" ? " Use formal register." : formality==="informal" ? " Use informal/casual register." : "";
     const messages = [
-      { role: "system", content: `You are a professional translator. Translate the given text accurately. Return ONLY the translated text, nothing else — no labels, no explanations.` },
-      { role: "user", content: `Translate the following text${sourcePart} to ${targetLanguage}:\n\n${text}` }
+      { role:"system", content:`You are a professional translator.${formalNote} Return ONLY the translated text.` },
+      { role:"user",   content:`Translate the following text${src} to ${targetLanguage}:\n\n${text}` }
     ];
-
     const translation = await callAI(messages, 800);
     setCache(cacheKey, translation);
-    res.json({ translation, cached: false });
-  } catch (err) {
-    console.error("Translate error:", err.message);
-    res.status(500).json({ error: err.message });
+    res.json({ translation, cached:false });
+  } catch(err) {
+    console.error("Translate:", err.message);
+    res.status(500).json({ error:err.message });
   }
 });
 
-// ── POST /api/analyze-file ─────────────────────────────────────
+// ── POST /api/analyze-file ─────────────────────────
 app.post("/api/analyze-file", upload.single("file"), async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: "No file uploaded." });
+    if (!req.file) return res.status(400).json({ error:"No file uploaded." });
+    const { action="summarize", language="en", question="" } = req.body;
+    const langMap={en:"English",fr:"French",es:"Spanish",de:"German",ar:"Arabic"};
+    const lang = langMap[language]||"English";
 
-    const { action = "summarize", language = "en", question = "" } = req.body;
-    const langMap = { en: "English", fr: "French", es: "Spanish", de: "German", ar: "Arabic" };
-    const lang = langMap[language] || "English";
-
-    // Extract text from buffer
     let fileText = "";
-    if (req.file.mimetype === "text/plain" || req.file.originalname.match(/\.(txt|md)$/i)) {
+    if (req.file.originalname.match(/\.(txt|md)$/i)) {
       fileText = req.file.buffer.toString("utf-8");
     } else if (req.file.originalname.match(/\.pdf$/i)) {
-      // Basic PDF text extraction — strip binary, keep readable chars
       const raw = req.file.buffer.toString("latin1");
-      // Extract text between BT (Begin Text) and ET (End Text) markers
-      const matches = raw.match(/BT[\s\S]*?ET/g) || [];
-      fileText = matches
-        .join(" ")
-        .replace(/\(([^)]+)\)/g, "$1 ")
-        .replace(/[^\x20-\x7E\n]/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-      if (!fileText || fileText.length < 50) {
-        // Fallback: extract any readable ASCII sequences
-        fileText = raw.replace(/[^\x20-\x7E\n]/g, " ").replace(/\s+/g, " ").trim();
-      }
+      const matches = raw.match(/\(([^\)]{2,})\)/g)||[];
+      fileText = matches.map(m=>m.slice(1,-1)).join(" ");
+      if (fileText.trim().length < 30) fileText = raw.replace(/[^\x20-\x7E\n]/g," ").replace(/\s+/g," ").trim();
     } else {
       fileText = req.file.buffer.toString("utf-8");
     }
 
-    // Truncate to 3000 chars to stay within token limits
-    const truncated = fileText.slice(0, 3000);
-    if (truncated.trim().length < 20) {
-      return res.status(400).json({ error: "Could not extract readable text from this file." });
-    }
+    const truncated = fileText.slice(0, 4000);
+    if (truncated.trim().length < 10) return res.status(400).json({ error:"Cannot extract text from this file." });
 
-    const actionPrompts = {
-      summarize: `Summarize the following document in clear bullet points. Respond in ${lang}.`,
-      keypoints: `Extract the 5 most important key points from this document. Respond in ${lang}.`,
-      explain:   `Explain the content of this document in simple terms a student can understand. Respond in ${lang}.`,
-      question:  `Answer the following question based on this document: "${question}". Respond in ${lang}.`,
+    const actions = {
+      summarize:`Summarize in clear bullet points in ${lang}.`,
+      keypoints:`Extract the 5 most important key points in ${lang}.`,
+      explain:  `Explain this in simple terms a student can understand in ${lang}.`,
+      question: `Answer this question: "${question}" based on the document in ${lang}.`,
+      mindmap:  `Create a structured mind map / outline of the main topics and subtopics in ${lang}. Use indented bullet points.`,
     };
 
-    const systemMsg = actionPrompts[action] || actionPrompts.summarize;
     const messages = [
-      { role: "system", content: systemMsg },
-      { role: "user", content: `Document content:\n\n${truncated}` }
+      { role:"system", content: actions[action]||actions.summarize },
+      { role:"user",   content:`Document:\n\n${truncated}` }
     ];
-
     const result = await callAI(messages, 700);
-    res.json({ result, filename: req.file.originalname, characters: truncated.length });
-  } catch (err) {
-    console.error("File analysis error:", err.message);
-    res.status(500).json({ error: err.message });
+    res.json({ result, filename:req.file.originalname, chars:truncated.length });
+  } catch(err) {
+    console.error("File:", err.message);
+    res.status(500).json({ error:err.message });
   }
 });
 
-// ── POST /api/image ────────────────────────────────────────────
+// ── POST /api/image ────────────────────────────────
 app.post("/api/image", async (req, res) => {
   try {
-    const { prompt, style = "realistic" } = req.body;
-    if (!prompt?.trim()) return res.status(400).json({ error: "Prompt is required." });
-
+    const { prompt, style="realistic" } = req.body;
+    if (!prompt?.trim()) return res.status(400).json({ error:"Prompt required." });
     const cacheKey = `img::${style}::${prompt.trim().toLowerCase()}`;
     const cached = getCache(cacheKey);
-    if (cached) return res.json({ imageUrl: cached, cached: true });
-
+    if (cached) return res.json({ imageUrl:cached, cached:true });
     const imageUrl = await generateImage(prompt, style);
     setCache(cacheKey, imageUrl);
-    res.json({ imageUrl, cached: false });
-  } catch (err) {
-    console.error("Image error:", err.message);
-    res.status(500).json({ error: err.message });
+    res.json({ imageUrl, cached:false });
+  } catch(err) {
+    console.error("Image:", err.message);
+    res.status(500).json({ error:err.message });
   }
 });
 
-// ── GET /api/health ────────────────────────────────────────────
-app.get("/api/health", (_, res) => res.json({ status: "ok", version: "2.0", service: "RA-FA AI" }));
+// ── POST /api/explain ──────────────────────────────
+// Explain reasoning behind any topic (explainability feature)
+app.post("/api/explain", async (req, res) => {
+  try {
+    const { topic, depth="simple", language="en" } = req.body;
+    if (!topic?.trim()) return res.status(400).json({ error:"Topic required." });
+    const langMap={en:"English",fr:"French",es:"Spanish",de:"German",ar:"Arabic"};
+    const lang = langMap[language]||"English";
+    const depthMap = { simple:"Explain simply like I'm 12", medium:"Explain with moderate detail", expert:"Explain with full technical depth and nuance" };
+    const messages = [
+      { role:"system", content:`You are an expert explainer. ${depthMap[depth]||depthMap.simple}. Show your reasoning step by step. Respond in ${lang}.` },
+      { role:"user",   content:`Explain: ${topic}` }
+    ];
+    const reply = await callAI(messages, 800);
+    res.json({ reply });
+  } catch(err) {
+    res.status(500).json({ error:err.message });
+  }
+});
 
-// Serve frontend
-app.get("*", (_, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
+// ── GET /api/health ────────────────────────────────
+app.get("/api/health", (_,res) => res.json({ status:"ok", version:"3.0", service:"RA-FA AI" }));
+app.get("*", (_,res) => res.sendFile(path.join(__dirname,"public","index.html")));
 
-app.listen(PORT, () => console.log(`✅  RA-FA AI v2 running on port ${PORT}`));
+app.listen(PORT, () => console.log(`✅ RA-FA AI v3 on port ${PORT}`));
