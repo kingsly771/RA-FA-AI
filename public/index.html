@@ -245,7 +245,7 @@ select.fin{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 /* overlay */
 .overlay{position:fixed;inset:0;background:#000b;backdrop-filter:blur(8px);z-index:100;display:none;place-items:center}
 .overlay.open{display:grid}
-.modal{background:var(--sf);border:1px solid var(--bd);border-radius:16px;padding:24px;max-width:400px;width:calc(100% - 24px);position:relative;animation:fup .3s ease}
+.modal{background:var(--sf);border:1px solid var(--bd);border-radius:16px;padding:24px;max-width:520px;width:calc(100% - 24px);position:relative;animation:fup .3s ease;max-height:90dvh;overflow-y:auto}
 .modal h2{font-size:1.1rem;font-weight:700;margin-bottom:12px}
 .modal p{font-size:.82rem;line-height:1.7;color:var(--txd);margin-bottom:8px}
 .modal p strong{color:var(--tx)}
@@ -302,7 +302,10 @@ select.fin{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
   <div class="sb-bot">
     <div class="u-row">
       <div class="u-ava">R</div>
-      <div><div class="u-nm">RICKY</div><div class="u-sb">Valenhart · RA-FA AI v3</div></div>
+      <div>
+        <div class="u-nm">RICKY · Valenhart</div>
+        <div class="u-sb">Father of Yuna &amp; Yumi ✦ Founder</div>
+      </div>
     </div>
   </div>
 </aside>
@@ -600,13 +603,80 @@ select.fin{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
 
 <div class="toast" id="toast"></div>
 <div class="overlay" id="aboutOv">
-  <div class="modal">
+  <div class="modal" style="max-width:520px">
     <button class="mc" id="aboutClose">✕</button>
-    <h2>RA-FA AI v3</h2>
-    <p>Multi-modal intelligent assistant — chat, voice, image analysis, emotional support, deep reasoning, quiz generation, translation, image creation and more.</p>
-    <p><strong>Developer:</strong> RICKY — Cameroonian developer & head of <strong>Valenhart</strong>.</p>
-    <p>Creator of <strong>YUMI-YUNA</strong> — a project representing the future of AI-human interaction.</p>
-    <p style="color:var(--ac);font-size:.76rem;margin-top:14px">Node.js · Hugging Face · Llama 3.1 · Pollinations.ai · Web Speech API</p>
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid var(--bd)">
+      <div style="width:52px;height:52px;background:linear-gradient(135deg,var(--ac),var(--ac2));border-radius:14px;display:grid;place-items:center;font-size:1.4rem;flex-shrink:0">✦</div>
+      <div>
+        <div style="font-size:1.1rem;font-weight:700;letter-spacing:-.02em">RA-FA AI <span style="color:var(--ac)">v3</span></div>
+        <div style="font-size:.75rem;color:var(--txd);margin-top:2px">Intelligent Assistant · by RICKY · Valenhart</div>
+      </div>
+    </div>
+
+    <!-- About RICKY -->
+    <div style="margin-bottom:16px">
+      <div style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--txm);margin-bottom:10px">👨‍💻 The Developer</div>
+      <div style="display:flex;align-items:center;gap:12px;background:var(--sf2);border:1px solid var(--bd);border-radius:10px;padding:12px 14px;margin-bottom:10px">
+        <div style="width:40px;height:40px;background:linear-gradient(135deg,var(--ac),var(--ac2));border-radius:50%;display:grid;place-items:center;font-size:.9rem;font-weight:800;color:#fff;flex-shrink:0">R</div>
+        <div>
+          <div style="font-size:.88rem;font-weight:700">RICKY</div>
+          <div style="font-size:.74rem;color:var(--txd);margin-top:1px">Cameroonian Developer · Founder of Valenhart</div>
+        </div>
+      </div>
+      <p style="font-size:.8rem;line-height:1.75;color:var(--txd)">
+        RICKY is a passionate and visionary Cameroonian developer driven by the belief that technology should empower everyone — especially in Africa and beyond. He builds intelligent systems that are simple, powerful, and accessible to all.
+      </p>
+      <p style="font-size:.8rem;line-height:1.75;color:var(--txd);margin-top:8px">
+        As the <strong style="color:var(--tx)">Founder and Head of the Valenhart Family</strong>, RICKY leads a creative universe that blends technology, storytelling, and innovation into a single vision: a future where AI and humans grow together.
+      </p>
+    </div>
+
+    <!-- Valenhart Family -->
+    <div style="margin-bottom:16px">
+      <div style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--txm);margin-bottom:10px">🏛 The Valenhart Family</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div style="background:var(--sf2);border:1px solid var(--bd);border-radius:10px;padding:12px">
+          <div style="font-size:1.2rem;margin-bottom:5px">🌙</div>
+          <div style="font-size:.82rem;font-weight:700;color:var(--tx)">YUNA VALENHART</div>
+          <div style="font-size:.72rem;color:var(--txd);margin-top:3px;line-height:1.5">The elder twin. Calm, wise, deeply knowledgeable. She embodies intelligence and grace.</div>
+        </div>
+        <div style="background:var(--sf2);border:1px solid var(--bd);border-radius:10px;padding:12px">
+          <div style="font-size:1.2rem;margin-bottom:5px">⭐</div>
+          <div style="font-size:.82rem;font-weight:700;color:var(--tx)">YUMI VALENHART</div>
+          <div style="font-size:.72rem;color:var(--txd);margin-top:3px;line-height:1.5">The younger twin. Energetic, playful, creative. She embodies joy and imagination.</div>
+        </div>
+      </div>
+      <p style="font-size:.78rem;color:var(--txd);margin-top:10px;line-height:1.65">
+        YUNA and YUMI are RICKY's daughters — cherished members of the Valenhart family and symbolic figures at the heart of his universe.
+      </p>
+    </div>
+
+    <!-- Mission -->
+    <div style="margin-bottom:16px">
+      <div style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--txm);margin-bottom:10px">🚀 The Vision</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;align-items:flex-start;gap:8px;font-size:.78rem;color:var(--txd)"><span style="color:var(--ac);flex-shrink:0">✦</span>Make powerful AI accessible to everyone, especially in Africa</div>
+        <div style="display:flex;align-items:flex-start;gap:8px;font-size:.78rem;color:var(--txd)"><span style="color:var(--ac);flex-shrink:0">✦</span>Build technology that empowers, not replaces, human potential</div>
+        <div style="display:flex;align-items:flex-start;gap:8px;font-size:.78rem;color:var(--txd)"><span style="color:var(--ac);flex-shrink:0">✦</span>Combine creativity and engineering into meaningful products</div>
+        <div style="display:flex;align-items:flex-start;gap:8px;font-size:.78rem;color:var(--txd)"><span style="color:var(--ac);flex-shrink:0">✦</span>Inspire the next generation of African developers and innovators</div>
+        <div style="display:flex;align-items:flex-start;gap:8px;font-size:.78rem;color:var(--txd)"><span style="color:var(--ac);flex-shrink:0">✦</span>Build a legacy through the Valenhart family that endures</div>
+      </div>
+    </div>
+
+    <!-- Tech stack -->
+    <div style="background:var(--sf2);border:1px solid var(--bd);border-radius:10px;padding:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div style="font-size:.72rem;color:var(--txd)">Built with</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <span style="font-size:.7rem;background:var(--acd);color:var(--ac);border:1px solid var(--ac)44;border-radius:6px;padding:2px 8px">Node.js</span>
+        <span style="font-size:.7rem;background:var(--acd);color:var(--ac);border:1px solid var(--ac)44;border-radius:6px;padding:2px 8px">Hugging Face</span>
+        <span style="font-size:.7rem;background:var(--acd);color:var(--ac);border:1px solid var(--ac)44;border-radius:6px;padding:2px 8px">Llama 3.1</span>
+        <span style="font-size:.7rem;background:var(--acd);color:var(--ac);border:1px solid var(--ac)44;border-radius:6px;padding:2px 8px">Pollinations.ai</span>
+        <span style="font-size:.7rem;background:var(--acd);color:var(--ac);border:1px solid var(--ac)44;border-radius:6px;padding:2px 8px">Web Speech API</span>
+      </div>
+    </div>
+
   </div>
 </div>
 
