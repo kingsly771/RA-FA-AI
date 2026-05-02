@@ -1,17 +1,17 @@
 /**
- * ai.js — OpenAI API integration
+ * ai.js — Anthropic Claude API integration
  * RA-FA AI v3 — by RICKY (Valenhart)
  */
 
-const API_KEY = process.env.OPENAI_API_KEY || "";
-const API_URL = "https://api.openai.com/v1/chat/completions";
-const MODEL   = "gpt-3.5-turbo"; // fast, cheap, reliable
+const API_KEY = process.env.ANTHROPIC_API_KEY || "";
+const API_URL = "https://api.anthropic.com/v1/messages";
+const MODEL   = "claude-haiku-4-5-20251001"; // fast + affordable on free tier
 
 // ── RICKY's full identity ─────────────────────────────────────────
 const RICKY_BIO = `
 You were created by RICKY, a passionate and visionary Cameroonian developer and innovator.
 RICKY is the founder and head of the VALENHART family — a legacy he built from creativity, ambition, and a deep love for technology and people.
-He is the father of YUNA VALENHART and YUMI VALENHART — two cherished members of the Valenhart family who symbolize intelligence, warmth, and the future of human-AI connection.
+He is the father of YUNA VALENHART and YUMI VALENHART — two cherished members of the Valenhart family who symbolize intelligence, warmth, and creativity.
 YUNA is the elder twin: calm, wise, and deeply knowledgeable. YUMI is the younger twin: energetic, playful, and creative.
 Together, YUNA and YUMI are the heart and soul of the VALENHART universe.
 RICKY's mission is to make powerful, accessible technology for everyone — especially in Africa and beyond.
@@ -68,79 +68,86 @@ function buildPrompt({ message, mode = "chat", language = "en", history = [], em
     ? " Use this format: ANALYSIS / REASONING STEPS / MULTIPLE PERSPECTIVES / CONCLUSION / CONFIDENCE LEVEL."
     : "";
 
-  const messages = [
-    { role: "system", content: `${sysBase}${emotionNote}${explainNote} ${langHint}` }
-  ];
+  const system = `${sysBase}${emotionNote}${explainNote} ${langHint}`;
+
+  // Anthropic uses separate system + messages array
+  const messages = [];
   for (const turn of history.slice(-8)) {
     if (turn.role === "user" || turn.role === "assistant") messages.push(turn);
   }
   messages.push({ role: "user", content: message });
-  return messages;
+
+  return { system, messages };
 }
 
-// ── Call OpenAI ───────────────────────────────────────────────────
-async function callAI(messages, maxTokens = 600) {
-  if (!API_KEY) throw new Error("OPENAI_API_KEY is not set. Add it to your .env file.");
+// ── Call Anthropic Claude ─────────────────────────────────────────
+async function callAI(prompt, maxTokens = 600) {
+  if (!API_KEY) throw new Error("ANTHROPIC_API_KEY is not set. Add it to your .env file.");
 
   const r = await fetch(API_URL, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${API_KEY}`,
-      "Content-Type": "application/json",
+      "x-api-key": API_KEY,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
     },
     body: JSON.stringify({
       model: MODEL,
-      messages,
       max_tokens: maxTokens,
-      temperature: 0.7,
+      system: prompt.system,
+      messages: prompt.messages,
     }),
   });
 
   if (!r.ok) {
     const err = await r.text();
-    if (r.status === 401) throw new Error("Invalid OpenAI API key. Check your OPENAI_API_KEY.");
+    if (r.status === 401) throw new Error("Invalid Anthropic API key. Check your ANTHROPIC_API_KEY.");
     if (r.status === 429) throw new Error("Rate limit reached. Please wait a moment and try again.");
-    if (r.status === 402) throw new Error("OpenAI quota exceeded. Please check your billing.");
-    throw new Error(`OpenAI API error ${r.status}: ${err.slice(0, 200)}`);
+    if (r.status === 402 || r.status === 403) throw new Error("API quota exceeded or key expired.");
+    throw new Error(`Anthropic API error ${r.status}: ${err.slice(0, 200)}`);
   }
 
   const data  = await r.json();
-  const reply = data?.choices?.[0]?.message?.content;
-  if (!reply) throw new Error("Empty response from OpenAI.");
+  const reply = data?.content?.[0]?.text;
+  if (!reply) throw new Error("Empty response from Claude.");
   return reply.trim();
 }
 
-// ── Vision: describe image via GPT-4o-mini ────────────────────────
+// ── Vision: analyze image via Claude claude-haiku-4-5-20251001 ────────────────────
 async function captionImage(base64, mimeType = "image/jpeg") {
-  if (!API_KEY) throw new Error("OPENAI_API_KEY is not set.");
+  if (!API_KEY) throw new Error("ANTHROPIC_API_KEY is not set.");
 
   const r = await fetch(API_URL, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${API_KEY}`,
-      "Content-Type": "application/json",
+      "x-api-key": API_KEY,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini", // supports vision
+      model: MODEL,
+      max_tokens: 400,
       messages: [
         {
           role: "user",
           content: [
-            { type: "text", text: "Describe this image in detail." },
-            { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}`, detail: "low" } }
+            {
+              type: "image",
+              source: { type: "base64", media_type: mimeType, data: base64 }
+            },
+            { type: "text", text: "Describe this image in detail." }
           ]
         }
       ],
-      max_tokens: 300,
     }),
   });
 
   if (!r.ok) {
     const e = await r.text();
-    throw new Error(`Vision API error ${r.status}: ${e.slice(0, 200)}`);
+    throw new Error(`Vision error ${r.status}: ${e.slice(0, 200)}`);
   }
   const data  = await r.json();
-  const reply = data?.choices?.[0]?.message?.content;
+  const reply = data?.content?.[0]?.text;
   if (!reply) throw new Error("Empty vision response.");
   return reply.trim();
 }
