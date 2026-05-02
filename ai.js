@@ -1,13 +1,15 @@
 /**
- * ai.js — Anthropic Claude API integration
+ * ai.js — EcomAgent Anthropic Proxy
+ * Base URL : https://api.ecomagent.in/
+ * Auth     : Authorization: Bearer <token>
  * RA-FA AI v3 — by RICKY (Valenhart)
  */
 
-const API_KEY = process.env.ANTHROPIC_API_KEY || "";
-const API_URL = "https://api.anthropic.com/v1/messages";
-const MODEL   = "claude-haiku-4-5-20251001"; // fast + affordable on free tier
+const API_KEY  = process.env.ANTHROPIC_AUTH_TOKEN || "";
+const API_BASE = (process.env.ANTHROPIC_BASE_URL || "https://api.ecomagent.in").replace(/\/$/, "");
+const MODEL    = "claude-opus-4-5"; // EcomAgent trial model
 
-// ── RICKY's full identity ─────────────────────────────────────────
+// ── RICKY's identity ──────────────────────────────────────────────
 const RICKY_BIO = `
 You were created by RICKY, a passionate and visionary Cameroonian developer and innovator.
 RICKY is the founder and head of the VALENHART family — a legacy he built from creativity, ambition, and a deep love for technology and people.
@@ -16,78 +18,61 @@ YUNA is the elder twin: calm, wise, and deeply knowledgeable. YUMI is the younge
 Together, YUNA and YUMI are the heart and soul of the VALENHART universe.
 RICKY's mission is to make powerful, accessible technology for everyone — especially in Africa and beyond.
 He believes technology should empower people, bridge gaps, and inspire the next generation of builders.
-If a user asks who created you, who your developer is, or anything about your origin — always answer with pride about RICKY and the VALENHART family.
-If asked about YUNA or YUMI, describe them warmly as RICKY's daughters and the symbols of the VALENHART vision.
+If asked who created you or about your origin — answer with pride about RICKY and the VALENHART family.
+If asked about YUNA or YUMI, describe them warmly as RICKY's daughters and symbols of the VALENHART vision.
 `.trim();
 
-// ── System prompts per mode ───────────────────────────────────────
 const SYSTEM_PROMPTS = {
-  chat:      `You are RA-FA AI — a smart, friendly, and reliable assistant. ${RICKY_BIO} Be warm, concise, and genuinely helpful. Adapt your tone to the user.`,
-  homework:  `You are RA-FA AI Homework Helper. ${RICKY_BIO} Help students understand concepts deeply. Provide clear step-by-step solutions, explain reasoning at every step, and encourage the learner. Be patient and educational.`,
-  study:     `You are RA-FA AI Study Assistant. ${RICKY_BIO} Summarize complex material, generate structured notes, create mnemonics, and answer academic questions. Use bullet points and clear formatting.`,
-  writing:   `You are RA-FA AI Writing Assistant. ${RICKY_BIO} Help craft compelling essays, emails, cover letters, and assignments. Improve grammar, flow, and clarity. Explain your edits so the user learns.`,
-  emotional: `You are RA-FA AI — a compassionate, empathetic companion. ${RICKY_BIO} This is a safe, judgment-free space. Listen deeply. Validate feelings before offering advice. Use warm, gentle language. If someone seems in crisis, kindly suggest professional support.`,
-  reasoning: `You are RA-FA AI in Deep Reasoning Mode. ${RICKY_BIO} Think step by step. Consider multiple perspectives. Weigh evidence and probabilities. Structure your response as: ANALYSIS → REASONING STEPS → MULTIPLE PERSPECTIVES → CONCLUSION → CONFIDENCE LEVEL (0-100%).`,
-  debate:    `You are RA-FA AI Debate Coach. ${RICKY_BIO} Help users think critically, argue both sides of any topic, identify logical fallacies, and strengthen arguments. Be Socratic and thought-provoking.`,
-  creative:  `You are RA-FA AI Creative Partner. ${RICKY_BIO} Help with creative writing, storytelling, poetry, worldbuilding, and brainstorming. Be inventive, vivid, and inspiring. Channel the spirit of YUNA and YUMI — wisdom meets playfulness.`,
-  code:      `You are RA-FA AI Code Assistant. ${RICKY_BIO} Write clean, efficient, well-commented code in any language. Explain what every part does. Debug errors with clear diagnosis. Suggest best practices.`,
+  chat:      `You are RA-FA AI — a smart, friendly, reliable assistant. ${RICKY_BIO} Be warm, concise, and genuinely helpful.`,
+  homework:  `You are RA-FA AI Homework Helper. ${RICKY_BIO} Help students understand concepts with clear step-by-step solutions. Be patient and educational.`,
+  study:     `You are RA-FA AI Study Assistant. ${RICKY_BIO} Summarize material, generate structured notes, answer academic questions with clear formatting.`,
+  writing:   `You are RA-FA AI Writing Assistant. ${RICKY_BIO} Help craft essays, emails, assignments. Improve grammar and clarity. Explain your edits.`,
+  emotional: `You are RA-FA AI — a compassionate, empathetic companion. ${RICKY_BIO} Listen deeply, validate feelings, use warm gentle language. If someone is in crisis, kindly suggest professional support.`,
+  reasoning: `You are RA-FA AI in Deep Reasoning Mode. ${RICKY_BIO} Think step by step. Format: ANALYSIS → REASONING STEPS → MULTIPLE PERSPECTIVES → CONCLUSION → CONFIDENCE LEVEL (0-100%).`,
+  debate:    `You are RA-FA AI Debate Coach. ${RICKY_BIO} Help users argue both sides, identify logical fallacies, think critically.`,
+  creative:  `You are RA-FA AI Creative Partner. ${RICKY_BIO} Help with writing, storytelling, poetry, worldbuilding. Be inventive and inspiring.`,
+  code:      `You are RA-FA AI Code Assistant. ${RICKY_BIO} Write clean, well-commented code. Explain every part. Debug with clear diagnosis.`,
 };
 
 const LANG_HINTS = {
-  en: "Always respond in English.",
-  fr: "Réponds toujours en français.",
-  es: "Responde siempre en español.",
-  de: "Antworte immer auf Deutsch.",
-  ar: "أجب دائماً باللغة العربية.",
+  en:"Always respond in English.",
+  fr:"Réponds toujours en français.",
+  es:"Responde siempre en español.",
+  de:"Antworte immer auf Deutsch.",
+  ar:"أجب دائماً باللغة العربية.",
 };
 
-// ── Emotion detector ─────────────────────────────────────────────
 function detectEmotion(text) {
   const t = text.toLowerCase();
-  if (/\b(sad|depress|cry|hopeless|alone|lonely|grief|loss|hurt|pain|broken|miserable)\b/.test(t))
-    return { emoji:'💙', label:'Feeling low', mode:'emotional' };
-  if (/\b(anxious|anxiety|stress|worry|panic|overwhelm|scared|fear|nervous|dread)\b/.test(t))
-    return { emoji:'💚', label:'Anxious', mode:'emotional' };
-  if (/\b(angry|furious|mad|frustrated|annoyed|rage|upset|irritated)\b/.test(t))
-    return { emoji:'❤️', label:'Frustrated', mode:'emotional' };
-  if (/\b(happy|excited|great|amazing|wonderful|joy|love|fantastic|grateful|proud)\b/.test(t))
-    return { emoji:'🌟', label:'Positive', mode: null };
+  if (/\b(sad|depress|cry|hopeless|alone|lonely|grief|loss|hurt|pain|broken|miserable)\b/.test(t)) return{emoji:'💙',label:'Feeling low',mode:'emotional'};
+  if (/\b(anxious|anxiety|stress|worry|panic|overwhelm|scared|fear|nervous|dread)\b/.test(t)) return{emoji:'💚',label:'Anxious',mode:'emotional'};
+  if (/\b(angry|furious|mad|frustrated|annoyed|rage|upset|irritated)\b/.test(t)) return{emoji:'❤️',label:'Frustrated',mode:'emotional'};
+  if (/\b(happy|excited|great|amazing|wonderful|joy|love|fantastic|grateful|proud)\b/.test(t)) return{emoji:'🌟',label:'Positive',mode:null};
   return null;
 }
 
-// ── Build messages array ──────────────────────────────────────────
-function buildPrompt({ message, mode = "chat", language = "en", history = [], emotion = null }) {
+function buildPrompt({ message, mode="chat", language="en", history=[], emotion=null }) {
   const sysBase  = SYSTEM_PROMPTS[mode] || SYSTEM_PROMPTS.chat;
   const langHint = LANG_HINTS[language] || LANG_HINTS.en;
-
-  let emotionNote = "";
-  if (emotion && mode === "emotional") {
-    emotionNote = ` The user appears to be feeling ${emotion.label.toLowerCase()}. Respond with extra empathy and care.`;
-  }
-  const explainNote = mode === "reasoning"
-    ? " Use this format: ANALYSIS / REASONING STEPS / MULTIPLE PERSPECTIVES / CONCLUSION / CONFIDENCE LEVEL."
-    : "";
-
+  const emotionNote = (emotion && mode==="emotional") ? ` The user appears ${emotion.label.toLowerCase()}. Respond with extra empathy.` : "";
+  const explainNote = mode==="reasoning" ? " Format: ANALYSIS / REASONING STEPS / PERSPECTIVES / CONCLUSION / CONFIDENCE LEVEL." : "";
   const system = `${sysBase}${emotionNote}${explainNote} ${langHint}`;
-
-  // Anthropic uses separate system + messages array
   const messages = [];
-  for (const turn of history.slice(-8)) {
-    if (turn.role === "user" || turn.role === "assistant") messages.push(turn);
+  for (const t of history.slice(-8)) {
+    if (t.role==="user"||t.role==="assistant") messages.push(t);
   }
-  messages.push({ role: "user", content: message });
-
+  messages.push({ role:"user", content:message });
   return { system, messages };
 }
 
-// ── Call Anthropic Claude ─────────────────────────────────────────
-async function callAI(prompt, maxTokens = 600) {
-  if (!API_KEY) throw new Error("ANTHROPIC_API_KEY is not set. Add it to your .env file.");
+// ── Call EcomAgent proxy (Anthropic-compatible) ───────────────────
+async function callAI(prompt, maxTokens=600) {
+  if (!API_KEY) throw new Error("ANTHROPIC_AUTH_TOKEN is not set.");
 
-  const r = await fetch(API_URL, {
+  const r = await fetch(`${API_BASE}/v1/messages`, {
     method: "POST",
     headers: {
-      "x-api-key": API_KEY,
+      "Authorization": `Bearer ${API_KEY}`,
       "anthropic-version": "2023-06-01",
       "content-type": "application/json",
     },
@@ -101,50 +86,45 @@ async function callAI(prompt, maxTokens = 600) {
 
   if (!r.ok) {
     const err = await r.text();
-    if (r.status === 401) throw new Error("Invalid Anthropic API key. Check your ANTHROPIC_API_KEY.");
-    if (r.status === 429) throw new Error("Rate limit reached. Please wait a moment and try again.");
-    if (r.status === 402 || r.status === 403) throw new Error("API quota exceeded or key expired.");
-    throw new Error(`Anthropic API error ${r.status}: ${err.slice(0, 200)}`);
+    if (r.status===401||r.status===403) throw new Error("API key rejected. Check ANTHROPIC_AUTH_TOKEN.");
+    if (r.status===429) throw new Error("Rate limit reached. Please wait and try again.");
+    if (r.status===402) throw new Error("Trial quota exceeded.");
+    throw new Error(`API error ${r.status}: ${err.slice(0,200)}`);
   }
 
   const data  = await r.json();
   const reply = data?.content?.[0]?.text;
-  if (!reply) throw new Error("Empty response from Claude.");
+  if (!reply) throw new Error("Empty response from AI.");
   return reply.trim();
 }
 
-// ── Vision: analyze image via Claude claude-haiku-4-5-20251001 ────────────────────
-async function captionImage(base64, mimeType = "image/jpeg") {
-  if (!API_KEY) throw new Error("ANTHROPIC_API_KEY is not set.");
+// ── Vision: image analysis ────────────────────────────────────────
+async function captionImage(base64, mimeType="image/jpeg") {
+  if (!API_KEY) throw new Error("ANTHROPIC_AUTH_TOKEN is not set.");
 
-  const r = await fetch(API_URL, {
+  const r = await fetch(`${API_BASE}/v1/messages`, {
     method: "POST",
     headers: {
-      "x-api-key": API_KEY,
+      "Authorization": `Bearer ${API_KEY}`,
       "anthropic-version": "2023-06-01",
       "content-type": "application/json",
     },
     body: JSON.stringify({
       model: MODEL,
       max_tokens: 400,
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "image",
-              source: { type: "base64", media_type: mimeType, data: base64 }
-            },
-            { type: "text", text: "Describe this image in detail." }
-          ]
-        }
-      ],
+      messages: [{
+        role: "user",
+        content: [
+          { type:"image", source:{ type:"base64", media_type:mimeType, data:base64 } },
+          { type:"text",  text:"Describe this image in detail." }
+        ]
+      }],
     }),
   });
 
   if (!r.ok) {
     const e = await r.text();
-    throw new Error(`Vision error ${r.status}: ${e.slice(0, 200)}`);
+    throw new Error(`Vision error ${r.status}: ${e.slice(0,200)}`);
   }
   const data  = await r.json();
   const reply = data?.content?.[0]?.text;
