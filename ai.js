@@ -1,6 +1,6 @@
 /**
  * ai.js — Multi-provider AI with fallback chain
- * Providers: Groq → Together AI → Hugging Face
+ * Providers: Groq → Cerebras → Hugging Face
  * All free tier, no credit card needed
  * RA-FA AI v3 — by RICKY (Valenhart)
  */
@@ -194,8 +194,8 @@ function buildPrompt({ message, mode="chat", language="en", history=[], emotion=
 
 // ── Main caller — tries providers in order ────────────────────────
 async function callAI(messages, maxTokens=600) {
-  const hasKey = GROQ_KEY || TOGETHER_KEY || HF_KEY;
-  if (!hasKey) throw new Error("No API keys set. Add GROQ_API_KEY, TOGETHER_API_KEY, or HF_API_KEY.");
+  const hasKey = GROQ_KEY || CEREBRAS_KEY || HF_KEY;
+  if (!hasKey) throw new Error("No API keys set. Add GROQ_API_KEY, CEREBRAS_API_KEY, or HF_API_KEY.");
 
   const providers = getProviders(messages, maxTokens);
   if (!providers.length) throw new Error("No providers available. Check your API keys.");
