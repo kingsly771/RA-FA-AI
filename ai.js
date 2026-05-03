@@ -1,18 +1,19 @@
 /**
- * ai.js — EcomAgent Anthropic Proxy
- * Base URL : https://api.ecomagent.in/
- * Auth     : Authorization: Bearer <token>
+ * ai.js — Multi-provider AI with fallback chain
+ * Providers: Groq → Together AI → Hugging Face
+ * All free tier, no credit card needed
  * RA-FA AI v3 — by RICKY (Valenhart)
  */
 
-const API_KEY  = process.env.ANTHROPIC_AUTH_TOKEN || "";
-const API_BASE = (process.env.ANTHROPIC_BASE_URL || "https://api.ecomagent.in").replace(/\/$/, "");
-const MODEL    = "claude-opus-4-5"; // EcomAgent trial model
+// ── API Keys (set in .env / Render environment) ───────────────────
+const GROQ_KEY     = process.env.GROQ_API_KEY     || "";
+const CEREBRAS_KEY = process.env.CEREBRAS_API_KEY  || "";
+const HF_KEY       = process.env.HF_API_KEY        || "";
 
 // ── RICKY's identity ──────────────────────────────────────────────
 const RICKY_BIO = `
 You were created by RICKY, a passionate and visionary Cameroonian developer and innovator.
-RICKY is the founder and head of the VALENHART family — a legacy he built from creativity, ambition, and a deep love for technology and people.
+RICKY is the founder and head of the VALENHART family — a legacy built from creativity, ambition, and a deep love for technology and people.
 He is the father of YUNA VALENHART and YUMI VALENHART — two cherished members of the Valenhart family who symbolize intelligence, warmth, and creativity.
 YUNA is the elder twin: calm, wise, and deeply knowledgeable. YUMI is the younger twin: energetic, playful, and creative.
 Together, YUNA and YUMI are the heart and soul of the VALENHART universe.
@@ -22,6 +23,7 @@ If asked who created you or about your origin — answer with pride about RICKY 
 If asked about YUNA or YUMI, describe them warmly as RICKY's daughters and symbols of the VALENHART vision.
 `.trim();
 
+// ── System prompts ────────────────────────────────────────────────
 const SYSTEM_PROMPTS = {
   chat:      `You are RA-FA AI — a smart, friendly, reliable assistant. ${RICKY_BIO} Be warm, concise, and genuinely helpful.`,
   homework:  `You are RA-FA AI Homework Helper. ${RICKY_BIO} Help students understand concepts with clear step-by-step solutions. Be patient and educational.`,
@@ -42,6 +44,128 @@ const LANG_HINTS = {
   ar:"أجب دائماً باللغة العربية.",
 };
 
+// ── Provider definitions ──────────────────────────────────────────
+// Each provider: { name, url, model, authHeader, buildBody, parseReply }
+function getProviders(messages, maxTokens) {
+  const providers = [];
+
+  // 1. GROQ — fastest, free, generous limits, OpenAI-compatible
+  // Get key: https://console.groq.com (free, instant)
+  // Models: llama-3.3-70b-versatile (best), llama-3.1-8b-instant (fast)
+  if (GROQ_KEY) {
+    providers.push({
+      name: "Groq (Llama-3.3-70B)",
+      call: async () => {
+        const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${GROQ_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "llama-3.3-70b-versatile",
+            messages,
+            max_tokens: maxTokens,
+            temperature: 0.7,
+          }),
+        });
+        if (!r.ok) throw new Error(`Groq ${r.status}: ${(await r.text()).slice(0,120)}`);
+        const d = await r.json();
+        return d.choices?.[0]?.message?.content?.trim();
+      }
+    });
+
+    // Groq fallback model — faster, still good
+    providers.push({
+      name: "Groq (Llama-3.1-8B)",
+      call: async () => {
+        const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${GROQ_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "llama-3.1-8b-instant",
+            messages,
+            max_tokens: maxTokens,
+            temperature: 0.7,
+          }),
+        });
+        if (!r.ok) throw new Error(`Groq-8B ${r.status}: ${(await r.text()).slice(0,120)}`);
+        const d = await r.json();
+        return d.choices?.[0]?.message?.content?.trim();
+      }
+    });
+  }
+
+  // 2. CEREBRAS — free forever, blazing fast, runs Llama-3.3-70B
+  // Get key FREE: https://cloud.cerebras.ai (no credit card needed)
+  // Fastest inference on the planet — 2000+ tokens/sec
+  if (CEREBRAS_KEY) {
+    providers.push({
+      name: "Cerebras (Llama-3.3-70B)",
+      call: async () => {
+        const r = await fetch("https://api.cerebras.ai/v1/chat/completions", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${CEREBRAS_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "llama-3.3-70b",
+            messages,
+            max_tokens: maxTokens,
+            temperature: 0.7,
+          }),
+        });
+        if (!r.ok) throw new Error(`Cerebras-70B ${r.status}: ${(await r.text()).slice(0,120)}`);
+        const d = await r.json();
+        return d.choices?.[0]?.message?.content?.trim();
+      }
+    });
+
+    providers.push({
+      name: "Cerebras (Llama-3.1-8B)",
+      call: async () => {
+        const r = await fetch("https://api.cerebras.ai/v1/chat/completions", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${CEREBRAS_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "llama3.1-8b",
+            messages,
+            max_tokens: maxTokens,
+            temperature: 0.7,
+          }),
+        });
+        if (!r.ok) throw new Error(`Cerebras-8B ${r.status}: ${(await r.text()).slice(0,120)}`);
+        const d = await r.json();
+        return d.choices?.[0]?.message?.content?.trim();
+      }
+    });
+  }
+
+  // 3. HUGGING FACE — always free, no expiry
+  // Get key: https://huggingface.co/settings/tokens
+  if (HF_KEY) {
+    const HF_MODELS = [
+      "meta-llama/Llama-3.1-8B-Instruct:cerebras",
+      "meta-llama/Llama-3.1-8B-Instruct:sambanova",
+      "meta-llama/Llama-3.1-8B-Instruct:featherless-ai",
+    ];
+    for (const model of HF_MODELS) {
+      const m = model; // closure
+      providers.push({
+        name: `HuggingFace (${m.split(":")[1]})`,
+        call: async () => {
+          const r = await fetch("https://router.huggingface.co/v1/chat/completions", {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${HF_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ model: m, messages, max_tokens: maxTokens, temperature: 0.7, stream: false }),
+          });
+          if (!r.ok) throw new Error(`HF ${m} ${r.status}: ${(await r.text()).slice(0,120)}`);
+          const d = await r.json();
+          return d.choices?.[0]?.message?.content?.trim();
+        }
+      });
+    }
+  }
+
+  return providers;
+}
+
+// ── Emotion detector ──────────────────────────────────────────────
 function detectEmotion(text) {
   const t = text.toLowerCase();
   if (/\b(sad|depress|cry|hopeless|alone|lonely|grief|loss|hurt|pain|broken|miserable)\b/.test(t)) return{emoji:'💙',label:'Feeling low',mode:'emotional'};
@@ -51,85 +175,62 @@ function detectEmotion(text) {
   return null;
 }
 
+// ── Build messages (OpenAI format — works for all 3 providers) ────
 function buildPrompt({ message, mode="chat", language="en", history=[], emotion=null }) {
-  const sysBase  = SYSTEM_PROMPTS[mode] || SYSTEM_PROMPTS.chat;
-  const langHint = LANG_HINTS[language] || LANG_HINTS.en;
-  const emotionNote = (emotion && mode==="emotional") ? ` The user appears ${emotion.label.toLowerCase()}. Respond with extra empathy.` : "";
-  const explainNote = mode==="reasoning" ? " Format: ANALYSIS / REASONING STEPS / PERSPECTIVES / CONCLUSION / CONFIDENCE LEVEL." : "";
-  const system = `${sysBase}${emotionNote}${explainNote} ${langHint}`;
-  const messages = [];
+  const sysBase   = SYSTEM_PROMPTS[mode] || SYSTEM_PROMPTS.chat;
+  const langHint  = LANG_HINTS[language] || LANG_HINTS.en;
+  const emoNote   = (emotion && mode==="emotional") ? ` User appears ${emotion.label.toLowerCase()}. Respond with extra empathy.` : "";
+  const reasNote  = mode==="reasoning" ? " Format: ANALYSIS / REASONING STEPS / PERSPECTIVES / CONCLUSION / CONFIDENCE LEVEL." : "";
+
+  const messages = [
+    { role:"system", content:`${sysBase}${emoNote}${reasNote} ${langHint}` }
+  ];
   for (const t of history.slice(-8)) {
     if (t.role==="user"||t.role==="assistant") messages.push(t);
   }
   messages.push({ role:"user", content:message });
-  return { system, messages };
+  return messages;
 }
 
-// ── Call EcomAgent proxy (Anthropic-compatible) ───────────────────
-async function callAI(prompt, maxTokens=600) {
-  if (!API_KEY) throw new Error("ANTHROPIC_AUTH_TOKEN is not set.");
+// ── Main caller — tries providers in order ────────────────────────
+async function callAI(messages, maxTokens=600) {
+  const hasKey = GROQ_KEY || TOGETHER_KEY || HF_KEY;
+  if (!hasKey) throw new Error("No API keys set. Add GROQ_API_KEY, TOGETHER_API_KEY, or HF_API_KEY.");
 
-  const r = await fetch(`${API_BASE}/v1/messages`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${API_KEY}`,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: maxTokens,
-      system: prompt.system,
-      messages: prompt.messages,
-    }),
-  });
+  const providers = getProviders(messages, maxTokens);
+  if (!providers.length) throw new Error("No providers available. Check your API keys.");
 
-  if (!r.ok) {
-    const err = await r.text();
-    if (r.status===401||r.status===403) throw new Error("API key rejected. Check ANTHROPIC_AUTH_TOKEN.");
-    if (r.status===429) throw new Error("Rate limit reached. Please wait and try again.");
-    if (r.status===402) throw new Error("Trial quota exceeded.");
-    throw new Error(`API error ${r.status}: ${err.slice(0,200)}`);
+  let lastErr = null;
+  for (const provider of providers) {
+    try {
+      console.log(`Trying ${provider.name}…`);
+      const reply = await provider.call();
+      if (reply) {
+        console.log(`✅ Success via ${provider.name}`);
+        return reply;
+      }
+    } catch(e) {
+      console.warn(`❌ ${provider.name} failed:`, e.message);
+      lastErr = e;
+    }
   }
-
-  const data  = await r.json();
-  const reply = data?.content?.[0]?.text;
-  if (!reply) throw new Error("Empty response from AI.");
-  return reply.trim();
+  throw new Error(lastErr?.message || "All AI providers failed. Please try again.");
 }
 
-// ── Vision: image analysis ────────────────────────────────────────
+// ── Vision: image captioning via HF ──────────────────────────────
 async function captionImage(base64, mimeType="image/jpeg") {
-  if (!API_KEY) throw new Error("ANTHROPIC_AUTH_TOKEN is not set.");
-
-  const r = await fetch(`${API_BASE}/v1/messages`, {
+  if (!HF_KEY) throw new Error("HF_API_KEY required for image analysis.");
+  const binary = Buffer.from(base64, "base64");
+  const r = await fetch("https://router.huggingface.co/hf-inference/models/Salesforce/blip-image-captioning-large", {
     method: "POST",
-    headers: {
-      "Authorization": `Bearer ${API_KEY}`,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 400,
-      messages: [{
-        role: "user",
-        content: [
-          { type:"image", source:{ type:"base64", media_type:mimeType, data:base64 } },
-          { type:"text",  text:"Describe this image in detail." }
-        ]
-      }],
-    }),
+    headers: { "Authorization": `Bearer ${HF_KEY}`, "Content-Type": mimeType },
+    body: binary,
   });
-
-  if (!r.ok) {
-    const e = await r.text();
-    throw new Error(`Vision error ${r.status}: ${e.slice(0,200)}`);
-  }
-  const data  = await r.json();
-  const reply = data?.content?.[0]?.text;
-  if (!reply) throw new Error("Empty vision response.");
-  return reply.trim();
+  if (!r.ok) throw new Error(`Vision error ${r.status}: ${(await r.text()).slice(0,200)}`);
+  const data = await r.json();
+  if (Array.isArray(data) && data[0]?.generated_text) return data[0].generated_text;
+  if (data.generated_text) return data.generated_text;
+  throw new Error("Could not caption image.");
 }
 
 module.exports = { callAI, buildPrompt, detectEmotion, captionImage };
