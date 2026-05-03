@@ -333,7 +333,7 @@ select.fin{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns
             <textarea id="mi" placeholder="Message RA-FA AI… attach image or file with 📎" rows="1" maxlength="4000"></textarea>
             <button class="ib" id="attachBtn" title="Attach file or image">📎</button>
             <button class="ib" id="voiceBtn" title="Voice input">🎙</button>
-            <button class="ib" id="ttsBtn" title="Auto-read responses">🔊</button>
+            <button class="ib" id="ttsBtn" title="Voice settings">🔊</button>
             <button class="ib send" id="sendBtn" disabled>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/></svg>
             </button>
@@ -1362,6 +1362,246 @@ function dataURLtoBlob(dataUrl,type){
 }
 
 mi.focus();
+
+// ══ IMPROVED TTS ══════════════════════════════════════════════════
+let ttsVoices = [];
+let ttsVoiceIndex = 0;
+let ttsPitch = 1.0;
+let ttsRate  = 0.95;
+let ttsVolume = 1.0;
+let currentTTS = null;
+
+// Load voices — browsers load them async
+function loadVoices() {
+  ttsVoices = window.speechSynthesis?.getVoices() || [];
+  populateVoiceSelect();
+}
+if ('speechSynthesis' in window) {
+  window.speechSynthesis.onvoiceschanged = loadVoices;
+  loadVoices();
+}
+
+function populateVoiceSelect() {
+  const sel = document.getElementById('voiceSelect');
+  if (!sel) return;
+  sel.innerHTML = '';
+  // prefer natural/neural voices first
+  const preferred = ttsVoices.filter(v =>
+    /natural|premium|enhanced|neural|google/i.test(v.name)
+  );
+  const rest = ttsVoices.filter(v =>
+    !/natural|premium|enhanced|neural|google/i.test(v.name)
+  );
+  const sorted = [...preferred, ...rest];
+  sorted.forEach((v, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = `${v.name} (${v.lang})`;
+    if (preferred.includes(v)) opt.style.fontWeight = '600';
+    sel.appendChild(opt);
+  });
+  // auto-select best voice for current language
+  autoSelectVoice();
+}
+
+function autoSelectVoice() {
+  const sel = document.getElementById('voiceSelect');
+  if (!sel || !ttsVoices.length) return;
+  const langCode = { en:'en', fr:'fr', es:'es', de:'de', ar:'ar' }[language] || 'en';
+  // try neural/natural first in current language
+  let idx = ttsVoices.findIndex(v =>
+    v.lang.startsWith(langCode) && /natural|premium|enhanced|neural|google/i.test(v.name)
+  );
+  if (idx < 0) idx = ttsVoices.findIndex(v => v.lang.startsWith(langCode));
+  if (idx >= 0) { sel.value = idx; ttsVoiceIndex = idx; }
+}
+
+function speak(text) {
+  if (!('speechSynthesis' in window)) return;
+  stopTTS();
+
+  // Deep clean — strip all markdown, symbols, URLs
+  const clean = text
+    .replace(/```[\s\S]*?```/g, 'code block.')
+    .replace(/`[^`]+`/g, '')
+    .replace(/#{1,6}\s/g, '')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/\[(.*?)\]\(.*?\)/g, '$1')
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/[>_~|]/g, '')
+    .replace(/
++/g, '. ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 800);
+
+  if (!clean) return;
+
+  const u = new SpeechSynthesisUtterance(clean);
+  const voice = ttsVoices[ttsVoiceIndex];
+  if (voice) u.voice = voice;
+  u.pitch  = ttsPitch;
+  u.rate   = ttsRate;
+  u.volume = ttsVolume;
+  u.lang   = voice?.lang || ({ en:'en-US', fr:'fr-FR', es:'es-ES', de:'de-DE', ar:'ar-SA' }[language] || 'en-US');
+
+  u.onstart = () => {
+    document.getElementById('ttsBtn').classList.add('speaking');
+    showTTSBar(clean);
+  };
+  u.onend = u.onerror = () => {
+    document.getElementById('ttsBtn').classList.remove('speaking');
+    hideTTSBar();
+  };
+
+  currentTTS = u;
+  window.speechSynthesis.speak(u);
+}
+
+function stopTTS() {
+  window.speechSynthesis?.cancel();
+  currentTTS = null;
+  document.getElementById('ttsBtn')?.classList.remove('speaking');
+  hideTTSBar();
+}
+
+function speakToggle(btn, text) {
+  if (window.speechSynthesis?.speaking) { stopTTS(); return; }
+  speak(text);
+}
+
+function showTTSBar(text) {
+  const bar = document.getElementById('ttsPlayBar');
+  if (bar) {
+    bar.style.display = 'flex';
+    const lbl = document.getElementById('ttsPlayText');
+    if (lbl) lbl.textContent = text.slice(0, 60) + (text.length > 60 ? '…' : '');
+  }
+}
+function hideTTSBar() {
+  const bar = document.getElementById('ttsPlayBar');
+  if (bar) bar.style.display = 'none';
+}
+
+// TTS settings panel toggle
+document.getElementById('ttsBtn').addEventListener('click', () => {
+  const panel = document.getElementById('ttsPanel');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  if (panel.style.display === 'block') populateVoiceSelect();
+});
+
+// close panel on outside click
+document.addEventListener('click', e => {
+  const panel = document.getElementById('ttsPanel');
+  const btn   = document.getElementById('ttsBtn');
+  if (panel && panel.style.display !== 'none' && !panel.contains(e.target) && e.target !== btn) {
+    panel.style.display = 'none';
+  }
+});
+
+// auto-read toggle
+document.getElementById('ttsAutoToggle').addEventListener('change', e => {
+  ttsEnabled = e.target.checked;
+});
+
+// voice select
+document.getElementById('voiceSelect').addEventListener('change', e => {
+  ttsVoiceIndex = +e.target.value;
+});
+
+// sliders
+document.getElementById('rateSlider').addEventListener('input', e => {
+  ttsRate = +e.target.value;
+  document.getElementById('rateVal').textContent = ttsRate.toFixed(1) + 'x';
+});
+document.getElementById('pitchSlider').addEventListener('input', e => {
+  ttsPitch = +e.target.value;
+  document.getElementById('pitchVal').textContent = ttsPitch.toFixed(1);
+});
+document.getElementById('volSlider').addEventListener('input', e => {
+  ttsVolume = +e.target.value;
+  document.getElementById('volVal').textContent = Math.round(ttsVolume * 100) + '%';
+});
+
+// test button
+document.getElementById('ttsTestBtn').addEventListener('click', () => {
+  speak("Hello! I am RA-FA AI, created by RICKY from Valenhart. How does my voice sound?");
+});
+
+// play bar stop button
+document.getElementById('ttsStopBtn').addEventListener('click', stopTTS);
 </script>
+
+<!-- TTS Settings Panel -->
+<div id="ttsPanel" style="display:none;position:fixed;bottom:80px;right:16px;z-index:200;width:300px;background:var(--sf);border:1px solid var(--bd2);border-radius:14px;padding:16px;box-shadow:0 8px 32px #00000066;animation:fup .2s ease">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+    <div style="font-size:.82rem;font-weight:700">🔊 Voice Settings</div>
+    <div style="display:flex;align-items:center;gap:6px;font-size:.76rem;color:var(--txd)">
+      Auto-read
+      <label style="position:relative;display:inline-block;width:34px;height:18px;cursor:pointer">
+        <input type="checkbox" id="ttsAutoToggle" style="opacity:0;width:0;height:0"/>
+        <span style="position:absolute;inset:0;background:var(--bd2);border-radius:20px;transition:.2s" id="ttsToggleTrack"></span>
+        <span style="position:absolute;top:2px;left:2px;width:14px;height:14px;background:#fff;border-radius:50%;transition:.2s" id="ttsToggleThumb"></span>
+      </label>
+    </div>
+  </div>
+
+  <!-- Voice selector -->
+  <div style="margin-bottom:12px">
+    <label style="font-size:.7rem;color:var(--txm);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:5px">Voice</label>
+    <select id="voiceSelect" style="width:100%;font-family:var(--f);font-size:.78rem;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:6px 10px;outline:none;cursor:pointer">
+      <option>Loading voices…</option>
+    </select>
+  </div>
+
+  <!-- Speed -->
+  <div style="margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+      <label style="font-size:.7rem;color:var(--txm);text-transform:uppercase;letter-spacing:.06em">Speed</label>
+      <span id="rateVal" style="font-size:.72rem;color:var(--ac);font-family:var(--fm)">0.9x</span>
+    </div>
+    <input type="range" id="rateSlider" min="0.5" max="2.0" step="0.1" value="0.95"
+      style="width:100%;accent-color:var(--ac);cursor:pointer"/>
+  </div>
+
+  <!-- Pitch -->
+  <div style="margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+      <label style="font-size:.7rem;color:var(--txm);text-transform:uppercase;letter-spacing:.06em">Pitch</label>
+      <span id="pitchVal" style="font-size:.72rem;color:var(--ac);font-family:var(--fm)">1.0</span>
+    </div>
+    <input type="range" id="pitchSlider" min="0.5" max="2.0" step="0.1" value="1.0"
+      style="width:100%;accent-color:var(--ac);cursor:pointer"/>
+  </div>
+
+  <!-- Volume -->
+  <div style="margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+      <label style="font-size:.7rem;color:var(--txm);text-transform:uppercase;letter-spacing:.06em">Volume</label>
+      <span id="volVal" style="font-size:.72rem;color:var(--ac);font-family:var(--fm)">100%</span>
+    </div>
+    <input type="range" id="volSlider" min="0" max="1" step="0.05" value="1"
+      style="width:100%;accent-color:var(--ac);cursor:pointer"/>
+  </div>
+
+  <button id="ttsTestBtn" style="width:100%;font-family:var(--f);font-size:.8rem;padding:8px;background:var(--acd);color:var(--ac);border:1px solid var(--ac)66;border-radius:8px;cursor:pointer;transition:opacity .2s">
+    ▶ Test Voice
+  </button>
+</div>
+
+<!-- TTS Now Playing bar -->
+<div id="ttsPlayBar" style="display:none;position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--sf2);border:1px solid var(--bd2);border-radius:10px;padding:8px 14px;z-index:201;align-items:center;gap:10px;box-shadow:0 4px 20px #0008;max-width:340px;width:calc(100% - 32px)">
+  <span style="font-size:.8rem">🔊</span>
+  <span id="ttsPlayText" style="font-size:.75rem;color:var(--txd);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+  <button id="ttsStopBtn" style="background:transparent;border:none;color:var(--txm);cursor:pointer;font-size:.85rem;padding:2px 4px;border-radius:4px;transition:color .15s">⏹</button>
+</div>
+
+<!-- Toggle switch styles -->
+<style>
+#ttsAutoToggle:checked + #ttsToggleTrack{background:var(--ac)}
+#ttsAutoToggle:checked ~ #ttsToggleThumb{transform:translateX(16px)}
+</style>
+
 </body>
 </html>
